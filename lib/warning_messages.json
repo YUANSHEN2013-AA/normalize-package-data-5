@@ -27,4 +27,5 @@
   ,"nonUrlHomepage": "homepage field must be a string url. Deleted."
   ,"invalidLicense": "license should be a valid SPDX license expression"
   ,"typo": "%s should probably be %s."
+  ,"pluginError": "Plugin '%s' threw an error: %s"
 }
