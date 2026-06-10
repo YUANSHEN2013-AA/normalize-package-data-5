@@ -495,3 +495,45 @@ test('normalizes shortcut repository format to https', function () {
   normalize(data)
   assert.strictEqual(data.repository.type, 'git', 'type should be git')
 })
+
+test('private packages suppress all warnings by default', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    private: true,
+    license: 'invalid license expression',
+  }, warn)
+  assert.deepStrictEqual(warnings, [], 'private packages should suppress all warnings by default')
+})
+
+test('warnEvenIfPrivate allows specific warnings for private packages', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    private: true,
+    license: 'invalid license expression',
+  }, warn, false, ['invalidLicense'])
+  assert.deepStrictEqual(warnings, [warningMessages.invalidLicense],
+    'invalidLicense warning should pass through for private packages when specified')
+})
+
+test('warnEvenIfPrivate does not allow unspecified warnings for private packages', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    private: true,
+  }, warn, false, ['invalidLicense'])
+  assert.deepStrictEqual(warnings, [], 'only warnEvenIfPrivate warnings should pass through for private packages')
+})

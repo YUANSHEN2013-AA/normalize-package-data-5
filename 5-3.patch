@@ -1,0 +1,82 @@
+diff --git a/lib/normalize.js b/lib/normalize.js
+index e806f11..a3e9748 100644
+--- a/lib/normalize.js
++++ b/lib/normalize.js
+@@ -17,7 +17,7 @@ var thingsToFix = fieldsToFix.map(function (fieldName) {
+ // thingsToFix = (ucFirst(name) + "Field" for name in fieldsToFix)
+ thingsToFix = thingsToFix.concat(otherThingsToFix)
+ 
+-function normalize (data, warn, strict) {
++function normalize (data, warn, strict, warnEvenIfPrivate) {
+   if (warn === true) {
+     warn = null
+     strict = true
+@@ -25,7 +25,7 @@ function normalize (data, warn, strict) {
+   if (!strict) {
+     strict = false
+   }
+-  if (!warn || data.private) {
++  if (!warn || (data.private && !Array.isArray(warnEvenIfPrivate))) {
+     warn = function () { /* noop */ }
+   }
+ 
+@@ -35,6 +35,9 @@ function normalize (data, warn, strict) {
+     data.gypfile = true
+   }
+   fixer.warn = function () {
++    if (data.private && warnEvenIfPrivate && !warnEvenIfPrivate.includes(arguments[0])) {
++      return
++    }
+     warn(makeWarning.apply(null, arguments))
+   }
+   thingsToFix.forEach(function (thingName) {
+diff --git a/test/normalize.js b/test/normalize.js
+index ce1c3ba..ca17d6d 100644
+--- a/test/normalize.js
++++ b/test/normalize.js
+@@ -495,3 +495,45 @@ test('normalizes shortcut repository format to https', function () {
+   normalize(data)
+   assert.strictEqual(data.repository.type, 'git', 'type should be git')
+ })
++
++test('private packages suppress all warnings by default', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    name: 'test-package',
++    version: '1.0.0',
++    private: true,
++    license: 'invalid license expression',
++  }, warn)
++  assert.deepStrictEqual(warnings, [], 'private packages should suppress all warnings by default')
++})
++
++test('warnEvenIfPrivate allows specific warnings for private packages', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    name: 'test-package',
++    version: '1.0.0',
++    private: true,
++    license: 'invalid license expression',
++  }, warn, false, ['invalidLicense'])
++  assert.deepStrictEqual(warnings, [warningMessages.invalidLicense],
++    'invalidLicense warning should pass through for private packages when specified')
++})
++
++test('warnEvenIfPrivate does not allow unspecified warnings for private packages', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    name: 'test-package',
++    version: '1.0.0',
++    private: true,
++  }, warn, false, ['invalidLicense'])
++  assert.deepStrictEqual(warnings, [], 'only warnEvenIfPrivate warnings should pass through for private packages')
++})
