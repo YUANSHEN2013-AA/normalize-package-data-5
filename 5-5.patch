@@ -1,0 +1,131 @@
+diff --git a/lib/normalize.js b/lib/normalize.js
+index e806f11..317bcf7 100644
+--- a/lib/normalize.js
++++ b/lib/normalize.js
+@@ -17,7 +17,7 @@ var thingsToFix = fieldsToFix.map(function (fieldName) {
+ // thingsToFix = (ucFirst(name) + "Field" for name in fieldsToFix)
+ thingsToFix = thingsToFix.concat(otherThingsToFix)
+ 
+-function normalize (data, warn, strict) {
++function normalize (data, warn, strict, warnEvenIfPrivate) {
+   if (warn === true) {
+     warn = null
+     strict = true
+@@ -25,7 +25,7 @@ function normalize (data, warn, strict) {
+   if (!strict) {
+     strict = false
+   }
+-  if (!warn || data.private) {
++  if (!warn || (data.private && !warnEvenIfPrivate)) {
+     warn = function () { /* noop */ }
+   }
+ 
+@@ -34,8 +34,18 @@ function normalize (data, warn, strict) {
+       !data.scripts.preinstall) {
+     data.gypfile = true
+   }
+-  fixer.warn = function () {
+-    warn(makeWarning.apply(null, arguments))
++  if (data.private && warnEvenIfPrivate) {
++    var originalWarn = warn
++    fixer.warn = function () {
++      var warningType = arguments[0]
++      if (warnEvenIfPrivate.indexOf(warningType) !== -1) {
++        originalWarn(makeWarning.apply(null, arguments))
++      }
++    }
++  } else {
++    fixer.warn = function () {
++      warn(makeWarning.apply(null, arguments))
++    }
+   }
+   thingsToFix.forEach(function (thingName) {
+     fixer['fix' + ucFirst(thingName)](data, strict)
+diff --git a/test/normalize.js b/test/normalize.js
+index ce1c3ba..2b36fec 100644
+--- a/test/normalize.js
++++ b/test/normalize.js
+@@ -495,3 +495,83 @@ test('normalizes shortcut repository format to https', function () {
+   normalize(data)
+   assert.strictEqual(data.repository.type, 'git', 'type should be git')
+ })
++
++test('private package suppresses all warnings without warnEvenIfPrivate', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    private: true,
++    license: 'Apache 2',
++  }, warn)
++  assert.deepStrictEqual(warnings, [], 'all warnings should be suppressed for private packages')
++})
++
++test('private package emits only specified warnings with warnEvenIfPrivate', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    private: true,
++    license: 'Apache 2',
++  }, warn, false, ['invalidLicense'])
++  assert.strictEqual(warnings.length, 1, 'only one warning should be emitted')
++  assert.strictEqual(warnings[0], warningMessages.invalidLicense, 'should emit invalidLicense warning')
++})
++
++test('private package emits missingLicense with warnEvenIfPrivate', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    private: true,
++  }, warn, false, ['missingLicense'])
++  assert.strictEqual(warnings.length, 1, 'only one warning should be emitted')
++  assert.strictEqual(warnings[0], warningMessages.missingLicense, 'should emit missingLicense warning')
++})
++
++test('private package with warnEvenIfPrivate only emits listed warning types', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    private: true,
++    license: 'Apache 2',
++  }, warn, false, ['missingLicense'])
++  assert.deepStrictEqual(warnings, [], 'missingLicense not emitted because actual warning is invalidLicense')
++})
++
++test('warnEvenIfPrivate has no effect on non-private packages', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    license: 'Apache 2',
++  }, warn, false, ['invalidLicense'])
++  var expect = [
++    warningMessages.missingDescription,
++    warningMessages.missingRepository,
++    warningMessages.missingReadme,
++    warningMessages.invalidLicense,
++  ]
++  assert.deepStrictEqual(warnings, expect, 'all warnings should still be emitted for non-private packages')
++})
++
++test('private package with multiple warnEvenIfPrivate entries', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    private: true,
++    license: 'Apache 2',
++  }, warn, false, ['invalidLicense', 'missingDescription'])
++  assert.strictEqual(warnings.length, 2, 'two warnings should be emitted')
++  assert.ok(warnings.includes(warningMessages.invalidLicense), 'should include invalidLicense')
++  assert.ok(warnings.includes(warningMessages.missingDescription), 'should include missingDescription')
++})

@@ -495,3 +495,83 @@ test('normalizes shortcut repository format to https', function () {
   normalize(data)
   assert.strictEqual(data.repository.type, 'git', 'type should be git')
 })
+
+test('private package suppresses all warnings without warnEvenIfPrivate', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    private: true,
+    license: 'Apache 2',
+  }, warn)
+  assert.deepStrictEqual(warnings, [], 'all warnings should be suppressed for private packages')
+})
+
+test('private package emits only specified warnings with warnEvenIfPrivate', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    private: true,
+    license: 'Apache 2',
+  }, warn, false, ['invalidLicense'])
+  assert.strictEqual(warnings.length, 1, 'only one warning should be emitted')
+  assert.strictEqual(warnings[0], warningMessages.invalidLicense, 'should emit invalidLicense warning')
+})
+
+test('private package emits missingLicense with warnEvenIfPrivate', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    private: true,
+  }, warn, false, ['missingLicense'])
+  assert.strictEqual(warnings.length, 1, 'only one warning should be emitted')
+  assert.strictEqual(warnings[0], warningMessages.missingLicense, 'should emit missingLicense warning')
+})
+
+test('private package with warnEvenIfPrivate only emits listed warning types', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    private: true,
+    license: 'Apache 2',
+  }, warn, false, ['missingLicense'])
+  assert.deepStrictEqual(warnings, [], 'missingLicense not emitted because actual warning is invalidLicense')
+})
+
+test('warnEvenIfPrivate has no effect on non-private packages', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    license: 'Apache 2',
+  }, warn, false, ['invalidLicense'])
+  var expect = [
+    warningMessages.missingDescription,
+    warningMessages.missingRepository,
+    warningMessages.missingReadme,
+    warningMessages.invalidLicense,
+  ]
+  assert.deepStrictEqual(warnings, expect, 'all warnings should still be emitted for non-private packages')
+})
+
+test('private package with multiple warnEvenIfPrivate entries', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    private: true,
+    license: 'Apache 2',
+  }, warn, false, ['invalidLicense', 'missingDescription'])
+  assert.strictEqual(warnings.length, 2, 'two warnings should be emitted')
+  assert.ok(warnings.includes(warningMessages.invalidLicense), 'should include invalidLicense')
+  assert.ok(warnings.includes(warningMessages.missingDescription), 'should include missingDescription')
+})
