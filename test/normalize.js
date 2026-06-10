@@ -495,3 +495,109 @@ test('normalizes shortcut repository format to https', function () {
   normalize(data)
   assert.strictEqual(data.repository.type, 'git', 'type should be git')
 })
+
+test('private package suppresses all warnings by default', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    private: true,
+    license: 'Apache 2',
+  }, warn)
+  assert.deepStrictEqual(warnings, [], 'private packages should suppress all warnings by default')
+})
+
+test('warnEvenIfPrivate allows specific warnings for private packages (string)', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    private: true,
+    license: 'Apache 2',
+  }, warn, { warnEvenIfPrivate: 'invalidLicense' })
+  assert.deepStrictEqual(
+    warnings,
+    [warningMessages.invalidLicense],
+    'should emit invalidLicense warning for private package'
+  )
+})
+
+test('warnEvenIfPrivate allows specific warnings for private packages (array)', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    private: true,
+    license: 'Apache 2',
+  }, warn, { warnEvenIfPrivate: ['invalidLicense', 'missingRepository'] })
+  assert.ok(
+    warnings.includes(warningMessages.invalidLicense),
+    'should emit invalidLicense warning'
+  )
+  assert.ok(
+    warnings.includes(warningMessages.missingRepository),
+    'should emit missingRepository warning'
+  )
+  assert.ok(
+    !warnings.includes(warningMessages.missingReadme),
+    'should not emit missingReadme warning'
+  )
+})
+
+test('warnEvenIfPrivate non-matching warnings are still suppressed for private packages', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    private: true,
+    license: 'Apache 2',
+  }, warn, { warnEvenIfPrivate: ['missingRepository'] })
+  assert.ok(
+    !warnings.includes(warningMessages.invalidLicense),
+    'invalidLicense not in warnEvenIfPrivate should not be emitted'
+  )
+})
+
+test('warnEvenIfPrivate has no effect on non-private packages', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    name: 'test-package',
+    version: '1.0.0',
+    license: 'Apache 2',
+  }, warn, { warnEvenIfPrivate: 'invalidLicense' })
+  assert.ok(
+    warnings.includes(warningMessages.invalidLicense),
+    'non-private packages emit invalidLicense warning normally'
+  )
+  assert.ok(
+    warnings.includes(warningMessages.missingRepository),
+    'non-private packages emit missingRepository warning normally'
+  )
+})
+
+test('warnEvenIfPrivate with strict option object also enables strict mode', function () {
+  assert.throws(
+    () => normalize(
+      { name: 'UpperCase', version: '1.0.0' },
+      function () {},
+      { strict: true, warnEvenIfPrivate: 'invalidLicense' }
+    ),
+    { message: /Invalid name/ },
+    'strict mode should be enabled when strict: true in options object'
+  )
+})
