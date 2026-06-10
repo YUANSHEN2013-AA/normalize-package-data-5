@@ -10,19 +10,32 @@ const makeWarning = require('../lib/make_warning')
 
 const rpjPath = path.resolve(__dirname, './fixtures/read-package-json.json')
 
+const loadFreshNormalize = () => {
+  delete require.cache[require.resolve('../lib/normalize')]
+  delete require.cache[require.resolve('../lib/fixer')]
+  return require('../lib/normalize')
+}
+
+const createValidPackageData = () => ({
+  name: 'test-package',
+  version: '1.0.0',
+  description: 'description',
+  readme: 'readme',
+  repository: 'https://github.com/npm/normalize-package-data.git',
+  license: 'MIT',
+})
+
 test('normalize some package data', function (t, done) {
   var packageData = require(rpjPath)
   var warnings = []
   normalize(packageData, function (warning) {
     warnings.push(warning)
   })
-  // there's no readme data in this particular object
   assert.strictEqual(warnings.length, 1, "There's exactly one warning.")
   fs.readFile(rpjPath, function (err, data) {
     if (err) {
       throw err
     }
-    // Various changes have been made
     assert.notDeepStrictEqual(packageData, JSON.parse(data), 'Output is different from input.')
     done()
   })
@@ -232,7 +245,6 @@ test('homepage field will set to github gist url if repository is a gist', funct
   assert.deepStrictEqual(a.homepage, 'https://gist.github.com/1234567')
 })
 
-/* eslint-disable-next-line max-len */
 test('homepage field will set to github gist url if repository is a shorthand reference', function () {
   var a
   normalize(a = {
@@ -494,4 +506,72 @@ test('normalizes shortcut repository format to https', function () {
   }
   normalize(data)
   assert.strictEqual(data.repository.type, 'git', 'type should be git')
+})
+
+test('registered plugin fixers run in registration order', function () {
+  var localNormalize = loadFreshNormalize()
+  var data = createValidPackageData()
+  var calls = []
+
+  localNormalize.fixer.registerFixer('pluginOrderFirst', function () {
+    calls.push('pluginOrderFirst')
+  }, { after: 'versionField' })
+  localNormalize.fixer.registerFixer('pluginOrderSecond', function () {
+    calls.push('pluginOrderSecond')
+  }, { after: 'pluginOrderFirst' })
+
+  localNormalize(data)
+
+  assert.deepStrictEqual(calls, ['pluginOrderFirst', 'pluginOrderSecond'])
+})
+
+test('registered plugin fixers can modify package data', function () {
+  var localNormalize = loadFreshNormalize()
+  var data = createValidPackageData()
+
+  localNormalize.fixer.registerFixer('exportsField', function (pkg) {
+    pkg.exports = './index.js'
+  }, { after: 'licenseField' })
+
+  localNormalize(data)
+
+  assert.strictEqual(data.exports, './index.js')
+})
+
+test('registered plugin fixers can emit warnings', function () {
+  var localNormalize = loadFreshNormalize()
+  var data = createValidPackageData()
+  var warnings = []
+
+  localNormalize.fixer.registerFixer('pluginWarn', function () {
+    this.warn('pluginCustomWarning', 'plugin-warn')
+  }, { after: 'licenseField' })
+
+  localNormalize(data, function (warning) {
+    warnings.push(warning)
+  })
+
+  assert.deepStrictEqual(warnings, ["pluginCustomWarning: 'plugin-warn'"])
+})
+
+test('registered plugin fixer errors are converted to warnings', function () {
+  var localNormalize = loadFreshNormalize()
+  var data = createValidPackageData()
+  var warnings = []
+
+  localNormalize.fixer.registerFixer('brokenPlugin', function () {
+    throw new Error('boom')
+  }, { after: 'licenseField' })
+  localNormalize.fixer.registerFixer('recoveryPlugin', function (pkg) {
+    pkg.pluginRecovered = true
+  }, { after: 'brokenPlugin' })
+
+  localNormalize(data, function (warning) {
+    warnings.push(warning)
+  })
+
+  assert.strictEqual(data.pluginRecovered, true)
+  assert.deepStrictEqual(warnings, [
+    safeFormat(warningMessages.pluginError, 'brokenPlugin', 'boom'),
+  ])
 })

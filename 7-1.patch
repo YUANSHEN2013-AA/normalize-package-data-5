@@ -1,0 +1,375 @@
+diff --git a/lib/fixer.js b/lib/fixer.js
+index 0b8defa..084dc3b 100644
+--- a/lib/fixer.js
++++ b/lib/fixer.js
+@@ -1,19 +1,57 @@
+ var { URL } = require('node:url')
+-var isValidSemver = require('semver/functions/valid')
++var { isBuiltin } = require('node:module')
+ var cleanSemver = require('semver/functions/clean')
+-var validateLicense = require('validate-npm-package-license')
+ var hostedGitInfo = require('hosted-git-info')
+-var { isBuiltin } = require('node:module')
+-var depTypes = ['dependencies', 'devDependencies', 'optionalDependencies']
++var isValidSemver = require('semver/functions/valid')
++var validateLicense = require('validate-npm-package-license')
+ var extractDescription = require('./extract_description')
+ var typos = require('./typos.json')
+ 
++var depTypes = ['dependencies', 'devDependencies', 'optionalDependencies']
++var defaultFixerOrder = ['nameField', 'versionField', 'descriptionField', 'repositoryField', 'modulesField', 'scriptsField',
++  'filesField', 'binField', 'manField', 'bugsField', 'keywordsField', 'readmeField', 'homepageField', 'licenseField',
++  'dependencies', 'people', 'typos']
++var registeredFixers = []
++
+ var isEmail = str => str.includes('@') && (str.indexOf('@') < str.lastIndexOf('.'))
+ 
+-module.exports = {
+-  // default warning function
++var fixer = {
+   warn: function () {},
+ 
++  registerFixer: function (name, handler, options) {
++    name = validateFixerName(name)
++    if (typeof handler !== 'function') {
++      throw new TypeError('Fixer handler must be a function.')
++    }
++    if (findRegisteredFixerIndex(name) !== -1) {
++      throw new Error('Fixer already registered: ' + name)
++    }
++
++    var entry = {
++      name: name,
++      handler: handler,
++      builtin: !!(options && options.builtin),
++    }
++    var insertIndex = getInsertIndex(options || {})
++    registeredFixers.splice(insertIndex, 0, entry)
++    this[getFixerMethodName(name)] = handler
++    return this
++  },
++
++  run: function (data, strict) {
++    registeredFixers.forEach(function (entry) {
++      if (entry.builtin) {
++        entry.handler.call(this, data, strict)
++        return
++      }
++      try {
++        entry.handler.call(this, data, strict)
++      } catch (error) {
++        this.warn('pluginError', entry.name, getErrorMessage(error))
++      }
++    }, this)
++  },
++
+   fixRepositoryField: function (data) {
+     if (data.repositories) {
+       this.warn('repositories')
+@@ -110,6 +148,7 @@ module.exports = {
+       data.man = [data.man]
+     }
+   },
++
+   fixBundleDependenciesField: function (data) {
+     var bdd = 'bundledDependencies'
+     var bd = 'bundleDependencies'
+@@ -194,8 +233,6 @@ module.exports = {
+   },
+ 
+   fixVersionField: function (data, strict) {
+-    // allow "loose" semver 1.0 versions in non-strict mode
+-    // enforce strict semver 2.0 compliance in strict mode
+     var loose = !strict
+     if (!data.version) {
+       data.version = ''
+@@ -321,7 +358,7 @@ module.exports = {
+   },
+ 
+   fixLicenseField: function (data) {
+-    const license = data.license || data.licence
++    var license = data.license || data.licence
+     if (!license) {
+       return this.warn('missingLicense')
+     }
+@@ -338,6 +375,65 @@ module.exports = {
+   },
+ }
+ 
++defaultFixerOrder.forEach(function (name) {
++  fixer.registerFixer(name, fixer[getFixerMethodName(name)], { builtin: true })
++})
++
++module.exports = fixer
++
++function validateFixerName (name) {
++  if (typeof name !== 'string' || !name.trim()) {
++    throw new TypeError('Fixer name must be a non-empty string.')
++  }
++  return name.trim()
++}
++
++function getInsertIndex (options) {
++  if (options.before && options.after) {
++    throw new Error('Cannot specify both before and after when registering a fixer.')
++  }
++  if (options.before) {
++    return getRequiredFixerIndex(options.before)
++  }
++  if (options.after) {
++    return getRequiredFixerIndex(options.after) + 1
++  }
++  return registeredFixers.length
++}
++
++function getRequiredFixerIndex (name) {
++  name = validateFixerName(name)
++  var index = findRegisteredFixerIndex(name)
++  if (index === -1) {
++    throw new Error('Unknown fixer: ' + name)
++  }
++  return index
++}
++
++function findRegisteredFixerIndex (name) {
++  for (var i = 0; i < registeredFixers.length; i++) {
++    if (registeredFixers[i].name === name) {
++      return i
++    }
++  }
++  return -1
++}
++
++function getFixerMethodName (name) {
++  return 'fix' + ucFirst(name)
++}
++
++function getErrorMessage (error) {
++  if (error && error.message) {
++    return error.message
++  }
++  return String(error)
++}
++
++function ucFirst (string) {
++  return string.charAt(0).toUpperCase() + string.slice(1)
++}
++
+ function isValidScopedPackageName (spec) {
+   if (spec.charAt(0) !== '@') {
+     return false
+@@ -393,12 +489,9 @@ function unParsePerson (person) {
+ }
+ 
+ function parsePerson (person) {
+-  /* node:coverage disable */
+-  // not possible in normal flow
+   if (typeof person !== 'string') {
+     return person
+   }
+-  /* node:coverage enable */
+   var matchedName = person.match(/^([^(<]+)/)
+   var matchedUrl = person.match(/\(([^()]+)\)/)
+   var matchedEmail = person.match(/<([^<>]+)>/)
+@@ -428,12 +521,9 @@ function addOptionalDepsToDeps (data) {
+ }
+ 
+ function depObjectify (deps, type, warn) {
+-  /* node:coverage disable */
+-  // not possible in normal flow
+   if (!deps) {
+     return {}
+   }
+-  /* node:coverage enable */
+   if (typeof deps === 'string') {
+     deps = deps.trim().split(/[\n\r\s\t ,]+/)
+   }
+@@ -465,12 +555,9 @@ function objectifyDeps (data, warn) {
+ }
+ 
+ function bugsTypos (bugs, warn) {
+-  /* node:coverage disable */
+-  // not possible in normal flow
+   if (!bugs) {
+     return
+   }
+-  /* node:coverage enable */
+   Object.keys(bugs).forEach(function (k) {
+     if (typos.bugs[k]) {
+       warn('typo', k, typos.bugs[k], 'bugs')
+diff --git a/lib/normalize.js b/lib/normalize.js
+index e806f11..c1bcd80 100644
+--- a/lib/normalize.js
++++ b/lib/normalize.js
+@@ -5,18 +5,6 @@ normalize.fixer = fixer
+ 
+ var makeWarning = require('./make_warning')
+ 
+-var fieldsToFix = ['name', 'version', 'description', 'repository', 'modules', 'scripts',
+-  'files', 'bin', 'man', 'bugs', 'keywords', 'readme', 'homepage', 'license']
+-var otherThingsToFix = ['dependencies', 'people', 'typos']
+-
+-var thingsToFix = fieldsToFix.map(function (fieldName) {
+-  return ucFirst(fieldName) + 'Field'
+-})
+-// two ways to do this in CoffeeScript on only one line, sub-70 chars:
+-// thingsToFix = fieldsToFix.map (name) -> ucFirst(name) + "Field"
+-// thingsToFix = (ucFirst(name) + "Field" for name in fieldsToFix)
+-thingsToFix = thingsToFix.concat(otherThingsToFix)
+-
+ function normalize (data, warn, strict) {
+   if (warn === true) {
+     warn = null
+@@ -26,7 +14,7 @@ function normalize (data, warn, strict) {
+     strict = false
+   }
+   if (!warn || data.private) {
+-    warn = function () { /* noop */ }
++    warn = function () {}
+   }
+ 
+   if (data.scripts &&
+@@ -37,12 +25,6 @@ function normalize (data, warn, strict) {
+   fixer.warn = function () {
+     warn(makeWarning.apply(null, arguments))
+   }
+-  thingsToFix.forEach(function (thingName) {
+-    fixer['fix' + ucFirst(thingName)](data, strict)
+-  })
++  fixer.run(data, strict)
+   data._id = data.name + '@' + data.version
+ }
+-
+-function ucFirst (string) {
+-  return string.charAt(0).toUpperCase() + string.slice(1)
+-}
+diff --git a/lib/warning_messages.json b/lib/warning_messages.json
+index 4890f50..0b153fe 100644
+--- a/lib/warning_messages.json
++++ b/lib/warning_messages.json
+@@ -26,5 +26,6 @@
+   ,"emptyNormalizedBugs": "Normalized value of bugs field is an empty object. Deleted."
+   ,"nonUrlHomepage": "homepage field must be a string url. Deleted."
+   ,"invalidLicense": "license should be a valid SPDX license expression"
++  ,"pluginError": "Plugin fixer %s failed: %s"
+   ,"typo": "%s should probably be %s."
+ }
+diff --git a/test/normalize.js b/test/normalize.js
+index ce1c3ba..dd638e6 100644
+--- a/test/normalize.js
++++ b/test/normalize.js
+@@ -10,19 +10,32 @@ const makeWarning = require('../lib/make_warning')
+ 
+ const rpjPath = path.resolve(__dirname, './fixtures/read-package-json.json')
+ 
++const loadFreshNormalize = () => {
++  delete require.cache[require.resolve('../lib/normalize')]
++  delete require.cache[require.resolve('../lib/fixer')]
++  return require('../lib/normalize')
++}
++
++const createValidPackageData = () => ({
++  name: 'test-package',
++  version: '1.0.0',
++  description: 'description',
++  readme: 'readme',
++  repository: 'https://github.com/npm/normalize-package-data.git',
++  license: 'MIT',
++})
++
+ test('normalize some package data', function (t, done) {
+   var packageData = require(rpjPath)
+   var warnings = []
+   normalize(packageData, function (warning) {
+     warnings.push(warning)
+   })
+-  // there's no readme data in this particular object
+   assert.strictEqual(warnings.length, 1, "There's exactly one warning.")
+   fs.readFile(rpjPath, function (err, data) {
+     if (err) {
+       throw err
+     }
+-    // Various changes have been made
+     assert.notDeepStrictEqual(packageData, JSON.parse(data), 'Output is different from input.')
+     done()
+   })
+@@ -232,7 +245,6 @@ test('homepage field will set to github gist url if repository is a gist', funct
+   assert.deepStrictEqual(a.homepage, 'https://gist.github.com/1234567')
+ })
+ 
+-/* eslint-disable-next-line max-len */
+ test('homepage field will set to github gist url if repository is a shorthand reference', function () {
+   var a
+   normalize(a = {
+@@ -495,3 +507,71 @@ test('normalizes shortcut repository format to https', function () {
+   normalize(data)
+   assert.strictEqual(data.repository.type, 'git', 'type should be git')
+ })
++
++test('registered plugin fixers run in registration order', function () {
++  var localNormalize = loadFreshNormalize()
++  var data = createValidPackageData()
++  var calls = []
++
++  localNormalize.fixer.registerFixer('pluginOrderFirst', function () {
++    calls.push('pluginOrderFirst')
++  }, { after: 'versionField' })
++  localNormalize.fixer.registerFixer('pluginOrderSecond', function () {
++    calls.push('pluginOrderSecond')
++  }, { after: 'pluginOrderFirst' })
++
++  localNormalize(data)
++
++  assert.deepStrictEqual(calls, ['pluginOrderFirst', 'pluginOrderSecond'])
++})
++
++test('registered plugin fixers can modify package data', function () {
++  var localNormalize = loadFreshNormalize()
++  var data = createValidPackageData()
++
++  localNormalize.fixer.registerFixer('exportsField', function (pkg) {
++    pkg.exports = './index.js'
++  }, { after: 'licenseField' })
++
++  localNormalize(data)
++
++  assert.strictEqual(data.exports, './index.js')
++})
++
++test('registered plugin fixers can emit warnings', function () {
++  var localNormalize = loadFreshNormalize()
++  var data = createValidPackageData()
++  var warnings = []
++
++  localNormalize.fixer.registerFixer('pluginWarn', function () {
++    this.warn('pluginCustomWarning', 'plugin-warn')
++  }, { after: 'licenseField' })
++
++  localNormalize(data, function (warning) {
++    warnings.push(warning)
++  })
++
++  assert.deepStrictEqual(warnings, ["pluginCustomWarning: 'plugin-warn'"])
++})
++
++test('registered plugin fixer errors are converted to warnings', function () {
++  var localNormalize = loadFreshNormalize()
++  var data = createValidPackageData()
++  var warnings = []
++
++  localNormalize.fixer.registerFixer('brokenPlugin', function () {
++    throw new Error('boom')
++  }, { after: 'licenseField' })
++  localNormalize.fixer.registerFixer('recoveryPlugin', function (pkg) {
++    pkg.pluginRecovered = true
++  }, { after: 'brokenPlugin' })
++
++  localNormalize(data, function (warning) {
++    warnings.push(warning)
++  })
++
++  assert.strictEqual(data.pluginRecovered, true)
++  assert.deepStrictEqual(warnings, [
++    safeFormat(warningMessages.pluginError, 'brokenPlugin', 'boom'),
++  ])
++})

@@ -26,5 +26,6 @@
   ,"emptyNormalizedBugs": "Normalized value of bugs field is an empty object. Deleted."
   ,"nonUrlHomepage": "homepage field must be a string url. Deleted."
   ,"invalidLicense": "license should be a valid SPDX license expression"
+  ,"pluginError": "Plugin fixer %s failed: %s"
   ,"typo": "%s should probably be %s."
 }
