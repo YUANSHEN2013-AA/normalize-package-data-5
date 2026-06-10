@@ -189,6 +189,32 @@ test("don't fail when license is licence", function () {
   assert.deepStrictEqual(warnings, [])
 })
 
+test('private packages suppress warnings by default', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    private: true,
+    license: 'Apache 2',
+  }, warn)
+
+  assert.deepStrictEqual(warnings, [])
+})
+
+test('private packages can allow selected warnings with warnEvenIfPrivate', function () {
+  var warnings = []
+  function warn (w) {
+    warnings.push(w)
+  }
+  normalize({
+    private: true,
+    license: 'Apache 2',
+  }, warn, 'invalidLicense')
+
+  assert.deepStrictEqual(warnings, [warningMessages.invalidLicense])
+})
+
 test('gist bugs url', function () {
   var d = {
     repository: 'git@gist.github.com:1234567.git',

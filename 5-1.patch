@@ -1,0 +1,100 @@
+diff --git a/lib/normalize.js b/lib/normalize.js
+index e806f11..64a234f 100644
+--- a/lib/normalize.js
++++ b/lib/normalize.js
+@@ -17,16 +17,34 @@ var thingsToFix = fieldsToFix.map(function (fieldName) {
+ // thingsToFix = (ucFirst(name) + "Field" for name in fieldsToFix)
+ thingsToFix = thingsToFix.concat(otherThingsToFix)
+ 
+-function normalize (data, warn, strict) {
+-  if (warn === true) {
+-    warn = null
+-    strict = true
++function normalize (data, warn, strict, warnEvenIfPrivate) {
++  var warningFn = warn
++  var isStrict = strict
++  var privateWarnings = warnEvenIfPrivate
++
++  if (typeof warningFn === 'boolean') {
++    isStrict = warningFn
++    if (typeof strict === 'function') {
++      warningFn = strict
++    } else {
++      warningFn = null
++      privateWarnings = strict
++    }
++  } else if (typeof strict !== 'boolean' && typeof strict !== 'undefined') {
++    isStrict = false
++    privateWarnings = strict
++  }
++
++  if (!isStrict) {
++    isStrict = false
+   }
+-  if (!strict) {
+-    strict = false
++  if (!warningFn) {
++    warningFn = function () {}
+   }
+-  if (!warn || data.private) {
+-    warn = function () { /* noop */ }
++  if (!privateWarnings) {
++    privateWarnings = []
++  } else if (!Array.isArray(privateWarnings)) {
++    privateWarnings = [privateWarnings]
+   }
+ 
+   if (data.scripts &&
+@@ -35,10 +53,13 @@ function normalize (data, warn, strict) {
+     data.gypfile = true
+   }
+   fixer.warn = function () {
+-    warn(makeWarning.apply(null, arguments))
++    if (data.private && privateWarnings.indexOf(arguments[0]) === -1) {
++      return
++    }
++    warningFn(makeWarning.apply(null, arguments))
+   }
+   thingsToFix.forEach(function (thingName) {
+-    fixer['fix' + ucFirst(thingName)](data, strict)
++    fixer['fix' + ucFirst(thingName)](data, isStrict)
+   })
+   data._id = data.name + '@' + data.version
+ }
+diff --git a/test/normalize.js b/test/normalize.js
+index ce1c3ba..b805f12 100644
+--- a/test/normalize.js
++++ b/test/normalize.js
+@@ -189,6 +189,32 @@ test("don't fail when license is licence", function () {
+   assert.deepStrictEqual(warnings, [])
+ })
+ 
++test('private packages suppress warnings by default', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    private: true,
++    license: 'Apache 2',
++  }, warn)
++
++  assert.deepStrictEqual(warnings, [])
++})
++
++test('private packages can allow selected warnings with warnEvenIfPrivate', function () {
++  var warnings = []
++  function warn (w) {
++    warnings.push(w)
++  }
++  normalize({
++    private: true,
++    license: 'Apache 2',
++  }, warn, 'invalidLicense')
++
++  assert.deepStrictEqual(warnings, [warningMessages.invalidLicense])
++})
++
+ test('gist bugs url', function () {
+   var d = {
+     repository: 'git@gist.github.com:1234567.git',
